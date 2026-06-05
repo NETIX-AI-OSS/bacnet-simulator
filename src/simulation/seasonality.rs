@@ -1,0 +1,93 @@
+use chrono::{DateTime, Datelike, Local, NaiveTime, Timelike};
+use crate::config::WeeklySchedule;
+
+pub struct SeasonalityEngine {
+    schedule: WeeklySchedule,
+}
+
+impl SeasonalityEngine {
+    pub fn new(schedule: WeeklySchedule) -> Self {
+        Self { schedule }
+    }
+
+    pub fn get_occupancy(&self, time: DateTime<Local>) -> f64 {
+        let is_weekend = time.weekday() == chrono::Weekday::Sat || time.weekday() == chrono::Weekday::Sun;
+        let day_schedule = if is_weekend {
+            &self.schedule.weekend_occupancy
+        } else {
+            &self.schedule.weekday_occupancy
+        };
+
+        if day_schedule.is_empty() {
+            return 0.0;
+        }
+
+        let current_time_mins = time.hour() * 60 + time.minute();
+
+        // Find the right interval
+        let mut prev_val = day_schedule[0].value;
+        let mut prev_time = self.parse_time_mins(&day_schedule[0].time);
+
+        if current_time_mins < prev_time {
+            return prev_val; // Before the first schedule point
+        }
+
+        for point in day_schedule.iter().skip(1) {
+            let next_time = self.parse_time_mins(&point.time);
+            let next_val = point.value;
+
+            if current_time_mins <= next_time {
+                // Linear interpolation
+                let fraction = (current_time_mins - prev_time) as f64 / (next_time - prev_time) as f64;
+                return prev_val + fraction * (next_val - prev_val);
+            }
+
+            prev_time = next_time;
+            prev_val = next_val;
+        }
+
+        prev_val // After the last schedule point
+    }
+
+    fn parse_time_mins(&self, time_str: &str) -> u32 {
+        let nt = NaiveTime::parse_from_str(time_str, "%H:%M").unwrap_or_default();
+        nt.hour() * 60 + nt.minute()
+    }
+    
+    pub fn get_outside_temp(&self, time: DateTime<Local>) -> f64 {
+        // Simple mock: temp peaks at 2 PM (14:00) at 35C, drops to 25C at 4 AM
+        let hour = time.hour() as f64 + (time.minute() as f64 / 60.0);
+        let base_temp = 30.0;
+        let amplitude = 5.0;
+        // Cosine wave, peak at 14.0
+        let temp = base_temp + amplitude * ((hour - 14.0) * std::f64::consts::PI / 12.0).cos();
+        temp
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use crate::config::TimeValue;
+
+    #[test]
+    fn test_occupancy_interpolation() {
+        let schedule = WeeklySchedule {
+            weekday_occupancy: vec![
+                TimeValue { time: "00:00".to_string(), value: 0.0 },
+                TimeValue { time: "12:00".to_string(), value: 1.0 },
+                TimeValue { time: "24:00".to_string(), value: 0.0 },
+            ],
+            weekend_occupancy: vec![],
+        };
+        let engine = SeasonalityEngine::new(schedule);
+        
+        // 2023-10-18 is a Wednesday
+        let time_6am = Local.with_ymd_and_hms(2023, 10, 18, 6, 0, 0).unwrap();
+        assert!((engine.get_occupancy(time_6am) - 0.5).abs() < 0.01);
+        
+        let time_12pm = Local.with_ymd_and_hms(2023, 10, 18, 12, 0, 0).unwrap();
+        assert_eq!(engine.get_occupancy(time_12pm), 1.0);
+    }
+}
