@@ -87,6 +87,16 @@ fn default_one() -> f32 {
     1.0
 }
 
+/// Sample symmetric noise in `[-noise, noise)`.  Returns 0.0 when `noise` is non-positive,
+/// avoiding a `gen_range` panic on a zero-width range.
+fn sample_noise(rng: &mut impl rand::Rng, noise: f32) -> f32 {
+    if noise > 0.0 {
+        rng.gen_range(-noise..noise)
+    } else {
+        0.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ProfileState {
     Constant(f32),
@@ -226,9 +236,9 @@ impl ProfileState {
                 end: *end,
                 period_secs: *period_secs,
             },
-            ProfileSpec::DerivedConstant { from } => ProfileState::DerivedConstant {
-                from: from.clone(),
-            },
+            ProfileSpec::DerivedConstant { from } => {
+                ProfileState::DerivedConstant { from: from.clone() }
+            }
         }
     }
 
@@ -273,11 +283,7 @@ impl ProfileState {
                 peak_delta,
                 noise,
             } => {
-                let noise_v = if *noise > 0.0 {
-                    rng.gen_range(-*noise..*noise)
-                } else {
-                    0.0
-                };
+                let noise_v = sample_noise(&mut rng, *noise);
                 PointValue::Real(*base + *peak_delta * ctx.occupancy + noise_v)
             }
             ProfileState::TempControl {
@@ -290,11 +296,7 @@ impl ProfileState {
                 let target = *setpoint + *outside_influence * (ctx.outside_temp - *setpoint);
                 let target = target + ctx.occupancy * 0.5; // mild internal-gain drift
                 let diff = target - *current;
-                let noise_v = if *noise > 0.0 {
-                    rng.gen_range(-*noise..*noise)
-                } else {
-                    0.0
-                };
+                let noise_v = sample_noise(&mut rng, *noise);
                 *current += diff * *gain * ctx.dt.max(0.001) + noise_v;
                 PointValue::Real(*current)
             }
@@ -369,7 +371,10 @@ mod tests {
     fn constant_returns_value() {
         let mut s = ProfileState::from_spec(&ProfileSpec::Constant { value: 42.0 });
         let siblings = HashMap::new();
-        assert_eq!(s.tick(&ctx(1.0, 0.0, 25.0, &siblings)), PointValue::Real(42.0));
+        assert_eq!(
+            s.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Real(42.0)
+        );
     }
 
     #[test]
@@ -462,10 +467,112 @@ mod tests {
             change_every_secs: 2.0,
         });
         let siblings = HashMap::new();
-        assert_eq!(s.tick(&ctx(1.0, 0.0, 25.0, &siblings)), PointValue::Unsigned(1));
-        assert_eq!(s.tick(&ctx(1.0, 0.0, 25.0, &siblings)), PointValue::Unsigned(2));
-        assert_eq!(s.tick(&ctx(1.0, 0.0, 25.0, &siblings)), PointValue::Unsigned(2));
-        assert_eq!(s.tick(&ctx(1.0, 0.0, 25.0, &siblings)), PointValue::Unsigned(3));
+        assert_eq!(
+            s.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Unsigned(1)
+        );
+        assert_eq!(
+            s.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Unsigned(2)
+        );
+        assert_eq!(
+            s.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Unsigned(2)
+        );
+        assert_eq!(
+            s.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Unsigned(3)
+        );
+    }
+
+    #[test]
+    fn constant_bool_returns_fixed_boolean() {
+        let mut s_true = ProfileState::from_spec(&ProfileSpec::ConstantBool { value: true });
+        let mut s_false = ProfileState::from_spec(&ProfileSpec::ConstantBool { value: false });
+        let siblings = HashMap::new();
+        assert_eq!(
+            s_true.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Boolean(true)
+        );
+        assert_eq!(
+            s_false.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+            PointValue::Boolean(false)
+        );
+    }
+
+    #[test]
+    fn constant_state_returns_fixed_unsigned() {
+        let mut s = ProfileState::from_spec(&ProfileSpec::ConstantState { value: 7 });
+        let siblings = HashMap::new();
+        for _ in 0..5 {
+            assert_eq!(
+                s.tick(&ctx(1.0, 0.0, 25.0, &siblings)),
+                PointValue::Unsigned(7)
+            );
+        }
+    }
+
+    #[test]
+    fn ramp_interpolates_from_start_to_end_across_period() {
+        let start = 0.0f32;
+        let end = 100.0f32;
+        let period = 100.0f32;
+        let mut s = ProfileState::from_spec(&ProfileSpec::Ramp {
+            start,
+            end,
+            period_secs: period,
+        });
+        let siblings = HashMap::new();
+
+        // At t=0, frac=0.0 → value should equal start
+        let mut c = ctx(1.0, 0.0, 25.0, &siblings);
+        c.now_secs = 0.0;
+        let v0 = s.tick(&c).as_f32().unwrap();
+        assert!((v0 - start).abs() < 1e-3, "at t=0: {v0}");
+
+        // At t=50 (half period), frac=0.5 → value should be midpoint
+        c.now_secs = 50.0;
+        let v50 = s.tick(&c).as_f32().unwrap();
+        assert!((v50 - 50.0).abs() < 1e-3, "at t=50: {v50}");
+
+        // At t=100 (exactly one period), frac wraps to 0 → value equals start again
+        c.now_secs = 100.0;
+        let v100 = s.tick(&c).as_f32().unwrap();
+        assert!((v100 - start).abs() < 1e-3, "at t=100 (wrap): {v100}");
+    }
+
+    #[test]
+    fn ramp_wraps_at_period_boundary() {
+        let mut s = ProfileState::from_spec(&ProfileSpec::Ramp {
+            start: 10.0,
+            end: 20.0,
+            period_secs: 10.0,
+        });
+        let siblings = HashMap::new();
+        // t=15 → t mod 10 = 5, frac = 0.5 → value = 10 + 0.5 * 10 = 15
+        let mut c = ctx(1.0, 0.0, 25.0, &siblings);
+        c.now_secs = 15.0;
+        let v = s.tick(&c).as_f32().unwrap();
+        assert!((v - 15.0).abs() < 1e-3, "wrapping ramp at t=15: {v}");
+    }
+
+    #[test]
+    fn derived_constant_reads_from_sibling() {
+        let mut s = ProfileState::from_spec(&ProfileSpec::DerivedConstant { from: "co2".into() });
+        let mut siblings = HashMap::new();
+        siblings.insert("co2".to_string(), 450.0f32);
+        let v = s.tick(&ctx(1.0, 0.0, 25.0, &siblings)).as_f32().unwrap();
+        assert!((v - 450.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn derived_constant_falls_back_to_zero_when_sibling_missing() {
+        let mut s = ProfileState::from_spec(&ProfileSpec::DerivedConstant {
+            from: "missing".into(),
+        });
+        let siblings = HashMap::new();
+        let v = s.tick(&ctx(1.0, 0.0, 25.0, &siblings)).as_f32().unwrap();
+        assert!((v - 0.0).abs() < 1e-6);
     }
 
     #[test]

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use bacnet_server::BacnetServer;
 use config::SimulatorConfig;
 use log::{error, info};
-use simulation::registry::build_device_registry;
 use simulation::Simulation;
+use simulation::registry::build_device_registry;
 use tokio::sync::Mutex;
 
 #[tokio::main]

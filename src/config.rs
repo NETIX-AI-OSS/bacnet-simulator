@@ -7,8 +7,12 @@ use crate::simulation::profiles::ProfileSpec;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BuildingConfig {
     pub name: String,
-    pub location: String,
-    pub timezone: String,
+    /// Physical location of the building (informational only; not used at runtime).
+    #[serde(default)]
+    pub location: Option<String>,
+    /// IANA timezone identifier (informational only; SeasonalityEngine uses system-local time).
+    #[serde(default)]
+    pub timezone: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -45,6 +49,7 @@ pub struct TemplatePointSpec {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AssetTemplate {
+    /// Human-readable description of this template (informational only; not propagated to BACnet properties).
     #[serde(default)]
     pub description: String,
     pub points: Vec<TemplatePointSpec>,
@@ -54,6 +59,7 @@ pub struct AssetTemplate {
 pub struct AssetInstanceSpec {
     pub template: String,
     pub name_prefix: String,
+    /// Zone label for this instance block (informational only; not propagated to DeviceSpec).
     #[serde(default)]
     pub zone: Option<String>,
     pub count: u32,
@@ -151,9 +157,7 @@ impl SimulatorConfig {
                 let mut instance_counters: HashMap<String, u32> = HashMap::new();
                 let mut points = Vec::with_capacity(template.points.len());
                 for tp in &template.points {
-                    let counter = instance_counters
-                        .entry(tp.object_type.clone())
-                        .or_insert(0);
+                    let counter = instance_counters.entry(tp.object_type.clone()).or_insert(0);
                     *counter += 1;
                     points.push(PointSpec {
                         label: tp.label.clone(),
@@ -211,8 +215,8 @@ mod tests {
         SimulatorConfig {
             building: BuildingConfig {
                 name: "T".into(),
-                location: "T".into(),
-                timezone: "UTC".into(),
+                location: None,
+                timezone: None,
             },
             seasonality: SeasonalityConfig {
                 weekly_schedule: WeeklySchedule {
@@ -288,10 +292,7 @@ mod tests {
     fn expansion_errors_on_unknown_template() {
         let mut cfg = sample_config();
         cfg.instances[0].template = "nope".into();
-        assert!(matches!(
-            cfg.expand(),
-            Err(ConfigError::UnknownTemplate(_))
-        ));
+        assert!(matches!(cfg.expand(), Err(ConfigError::UnknownTemplate(_))));
     }
 
     #[test]
@@ -312,7 +313,11 @@ mod tests {
 
         let mut device_ids = std::collections::HashSet::new();
         for d in &devs {
-            assert!(device_ids.insert(d.device_id), "duplicate device_id {}", d.device_id);
+            assert!(
+                device_ids.insert(d.device_id),
+                "duplicate device_id {}",
+                d.device_id
+            );
             let mut tuples = std::collections::HashSet::new();
             for p in &d.points {
                 assert!(
