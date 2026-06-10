@@ -15,6 +15,8 @@ use log::{error, info, warn};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
+use crate::app::log::AppLog;
+use crate::app::metrics::AppMetrics;
 use crate::simulation::Simulation;
 use crate::simulation::registry::DeviceEntry;
 
@@ -29,37 +31,81 @@ pub struct BacnetServer {
     simulation: Arc<Mutex<Simulation>>,
     devices: Vec<DeviceEntry>,
     port: u16,
+    metrics: Arc<AppMetrics>,
+    app_log: Option<Arc<AppLog>>,
 }
 
 impl BacnetServer {
-    pub fn new(simulation: Arc<Mutex<Simulation>>, devices: Vec<DeviceEntry>, port: u16) -> Self {
+    pub fn new(
+        simulation: Arc<Mutex<Simulation>>,
+        devices: Vec<DeviceEntry>,
+        port: u16,
+        metrics: Arc<AppMetrics>,
+        app_log: Option<Arc<AppLog>>,
+    ) -> Self {
         Self {
             simulation,
             devices,
             port,
+            metrics,
+            app_log,
         }
     }
 
-    pub async fn run(&self) {
+    fn log_info(&self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if let Some(log) = &self.app_log {
+            log.push(msg);
+        } else {
+            info!("{}", msg);
+        }
+    }
+
+    fn log_warn(&self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if let Some(log) = &self.app_log {
+            log.push(format!("WARN: {msg}"));
+        } else {
+            warn!("{}", msg);
+        }
+    }
+
+    fn log_error(&self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if let Some(log) = &self.app_log {
+            log.push(format!("ERROR: {msg}"));
+        } else {
+            error!("{}", msg);
+        }
+    }
+
+    pub async fn run(self) {
         let addr = format!("0.0.0.0:{}", self.port);
         let socket = match UdpSocket::bind(&addr).await {
             Ok(s) => Arc::new(s),
             Err(e) => {
-                error!("Failed to bind to {}: {}", addr, e);
+                self.log_error(format!("Failed to bind to {addr}: {e}"));
+                self.metrics.set_listening(false);
                 return;
             }
         };
 
         if let Err(e) = socket.set_broadcast(true) {
-            warn!("Failed to set broadcast on socket: {}", e);
+            self.log_warn(format!("Failed to set broadcast on socket: {e}"));
         }
 
-        info!("BACnet Simulator Server listening on {}", addr);
+        self.metrics.set_listening(true);
+        self.log_info(format!("BACnet Simulator Server listening on {addr}"));
 
         // Spawn a dedicated simulation tick task that fires every second regardless of
         // BACnet packet load. Using Instant for elapsed time gives accurate dt even when
         // ticks are slightly late.
         let sim_clone = Arc::clone(&self.simulation);
+        let metrics = Arc::clone(&self.metrics);
+        let app_log = self.app_log.clone();
+        let devices = self.devices;
+        let simulation = Arc::clone(&self.simulation);
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             let mut last_tick = Instant::now();
@@ -78,16 +124,38 @@ impl BacnetServer {
         loop {
             match socket.recv_from(&mut buf).await {
                 Ok((len, src)) => {
-                    self.handle_datagram(&socket, &buf[..len], src).await;
+                    handle_datagram(
+                        &socket,
+                        &buf[..len],
+                        src,
+                        &simulation,
+                        &devices,
+                        &metrics,
+                        &app_log,
+                    )
+                    .await;
                 }
                 Err(e) => {
-                    warn!("Error receiving from socket: {}", e);
+                    if let Some(log) = &app_log {
+                        log.push(format!("WARN: Error receiving from socket: {e}"));
+                    } else {
+                        warn!("Error receiving from socket: {}", e);
+                    }
                 }
             }
         }
     }
+}
 
-    async fn handle_datagram(&self, socket: &UdpSocket, data: &[u8], src: SocketAddr) {
+async fn handle_datagram(
+    socket: &UdpSocket,
+    data: &[u8],
+    src: SocketAddr,
+    simulation: &Arc<Mutex<Simulation>>,
+    devices: &[DeviceEntry],
+    metrics: &Arc<AppMetrics>,
+    app_log: &Option<Arc<AppLog>>,
+) {
         let Some(apdu_bytes) = extract_apdu(data) else {
             return;
         };
@@ -99,7 +167,15 @@ impl BacnetServer {
 
         if apdu::is_unconfirmed_whois(&apdu) {
             if let Apdu::UnconfirmedRequest { service_data, .. } = apdu {
-                self.handle_whois(service_data, socket, src).await;
+                handle_whois(
+                    service_data,
+                    socket,
+                    src,
+                    simulation,
+                    metrics,
+                    app_log,
+                )
+                .await;
             }
             return;
         }
@@ -111,87 +187,120 @@ impl BacnetServer {
             ..
         } = apdu
         {
-            self.handle_confirmed_request(socket, src, invoke_id, service_choice, &service_data)
-                .await;
+            handle_confirmed_request(
+                socket,
+                src,
+                invoke_id,
+                service_choice,
+                &service_data,
+                simulation,
+                devices,
+                metrics,
+                app_log,
+            )
+            .await;
+        }
+}
+
+async fn handle_confirmed_request(
+    socket: &UdpSocket,
+    src: SocketAddr,
+    invoke_id: u8,
+    service_choice: ConfirmedServiceChoice,
+    service_data: &[u8],
+    simulation: &Arc<Mutex<Simulation>>,
+    devices: &[DeviceEntry],
+    metrics: &Arc<AppMetrics>,
+    app_log: &Option<Arc<AppLog>>,
+) {
+    let sim = simulation.lock().await;
+    let response = match service_choice {
+        ConfirmedServiceChoice::ReadProperty => {
+            metrics.record_read_property(src);
+            properties::handle_read_property(service_data, devices, &sim)
+                .map(|ack| apdu::build_complex_ack(invoke_id, service_choice, ack))
+        }
+        ConfirmedServiceChoice::ReadPropertyMultiple => {
+            metrics.record_read_property_multiple(src);
+            rpm::handle_read_property_multiple(service_data, devices, &sim)
+                .map(|ack| apdu::build_complex_ack(invoke_id, service_choice, ack))
+        }
+        _ => {
+            let msg = format!("Unsupported confirmed service {service_choice:?} from {src}");
+            if let Some(log) = app_log {
+                log.push(msg);
+            } else {
+                info!("{}", msg);
+            }
+            None
+        }
+    };
+    drop(sim);
+
+    let Some(apdu_bytes) = response else {
+        let error = apdu::build_error_pdu(invoke_id, service_choice, 0, 31);
+        if let Some(packet) = wrap_unicast_npdu(&error).ok() {
+            let _ = socket.send_to(&packet, src).await;
+        }
+        return;
+    };
+
+    if let Some(packet) = wrap_unicast_npdu(&apdu_bytes).ok() {
+        if let Err(e) = socket.send_to(&packet, src).await {
+            let msg = format!("Failed to send confirmed ack to {src}: {e}");
+            if let Some(log) = app_log {
+                log.push(format!("ERROR: {msg}"));
+            } else {
+                error!("{}", msg);
+            }
         }
     }
+}
 
-    async fn handle_confirmed_request(
-        &self,
-        socket: &UdpSocket,
-        src: SocketAddr,
-        invoke_id: u8,
-        service_choice: ConfirmedServiceChoice,
-        service_data: &[u8],
-    ) {
-        let sim = self.simulation.lock().await;
-        let response = match service_choice {
-            ConfirmedServiceChoice::ReadProperty => {
-                properties::handle_read_property(service_data, &self.devices, &sim)
-                    .map(|ack| apdu::build_complex_ack(invoke_id, service_choice, ack))
-            }
-            ConfirmedServiceChoice::ReadPropertyMultiple => {
-                rpm::handle_read_property_multiple(service_data, &self.devices, &sim)
-                    .map(|ack| apdu::build_complex_ack(invoke_id, service_choice, ack))
-            }
-            _ => {
-                info!(
-                    "Unsupported confirmed service {:?} from {}",
-                    service_choice, src
-                );
-                None
-            }
-        };
-        drop(sim);
+async fn handle_whois(
+    service_data: Vec<u8>,
+    socket: &UdpSocket,
+    src: SocketAddr,
+    simulation: &Arc<Mutex<Simulation>>,
+    metrics: &Arc<AppMetrics>,
+    app_log: &Option<Arc<AppLog>>,
+) {
+    metrics.record_who_is(src);
+    let whois = whois_compat::decode_whois(&service_data);
 
-        let Some(apdu_bytes) = response else {
-            let error = apdu::build_error_pdu(invoke_id, service_choice, 0, 31);
-            if let Ok(packet) = wrap_unicast_npdu(&error) {
-                let _ = socket.send_to(&packet, src).await;
-            }
-            return;
-        };
+    let responses: Vec<(u32, Vec<u8>)> = {
+        let sim = simulation.lock().await;
+        sim.devices
+            .iter()
+            .filter(|device| whois.matches(device.device_id))
+            .filter_map(|device| {
+                create_iam_response(device.device_id, &device.name)
+                    .ok()
+                    .map(|bytes| (device.device_id, bytes))
+            })
+            .collect()
+    };
 
-        if let Ok(packet) = wrap_unicast_npdu(&apdu_bytes)
-            && let Err(e) = socket.send_to(&packet, src).await
-        {
-            error!("Failed to send confirmed ack to {}: {}", src, e);
-        }
+    let msg = format!(
+        "Responding to Who-Is from {src}: {} device(s)",
+        responses.len()
+    );
+    if let Some(log) = app_log {
+        log.push(msg);
+    } else {
+        info!("{}", msg);
     }
 
-    async fn handle_whois(&self, service_data: Vec<u8>, socket: &UdpSocket, src: SocketAddr) {
-        let whois = whois_compat::decode_whois(&service_data);
-
-        // Collect responses while holding the simulation lock, then release it before
-        // the staggered send phase so simulation ticks aren't blocked.
-        let responses: Vec<(u32, Vec<u8>)> = {
-            let sim = self.simulation.lock().await;
-            sim.devices
-                .iter()
-                .filter(|device| whois.matches(device.device_id))
-                .filter_map(|device| {
-                    create_iam_response(device.device_id, &device.name)
-                        .ok()
-                        .map(|bytes| (device.device_id, bytes))
-                })
-                .collect()
-        };
-
-        info!(
-            "Responding to Who-Is from {}: {} device(s)",
-            src,
-            responses.len()
-        );
-
-        // Stagger I-Am sends so a 200+ device burst doesn't overflow the requester's
-        // kernel UDP recv buffer. ~500us per packet keeps the full sweep under 200ms for
-        // 400 devices, well inside any sensible discovery window.
-        for (device_id, response) in responses {
-            if let Err(e) = socket.send_to(&response, src).await {
-                error!("Failed to send I-Am for device {}: {}", device_id, e);
+    for (device_id, response) in responses {
+        if let Err(e) = socket.send_to(&response, src).await {
+            let msg = format!("Failed to send I-Am for device {device_id}: {e}");
+            if let Some(log) = app_log {
+                log.push(format!("ERROR: {msg}"));
+            } else {
+                error!("{}", msg);
             }
-            tokio::time::sleep(Duration::from_micros(500)).await;
         }
+        tokio::time::sleep(Duration::from_micros(500)).await;
     }
 }
 

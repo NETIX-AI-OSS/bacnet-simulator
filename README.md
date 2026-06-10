@@ -6,6 +6,10 @@ temperature control loops, occupancy-linked load, scheduled binaries, random wal
 and integrators — so you can test BACnet clients, gateways, and analytics pipelines
 without real hardware.
 
+Ships as a **single cross-platform binary**: download, run (or double-click), and it
+starts serving BACnet/IP on UDP port **47808**. On first run it writes a full sample
+`config.yaml` into the current working directory; later runs reuse that file.
+
 ## Features
 
 - Define devices declaratively with reusable **templates** and **instance blocks**.
@@ -15,8 +19,41 @@ without real hardware.
   across all devices.
 - Serves BACnet/IP over UDP (default port **47808**), responding to Who-Is,
   Read-Property, and Read-Property-Multiple.
+- Zero install step beyond the binary — sample config is created automatically.
+- **Interactive terminal UI** on interactive terminals — live status, device browser,
+  and config generation without leaving the app.
 
 ## Quick start
+
+### Download a release binary
+
+Pre-built binaries for Linux, macOS, and Windows are attached to each
+[GitHub release](https://github.com/NETIX-AI-OSS/bacnet-simulator/releases)
+(tagged `v*`, for example `v0.1.0`).
+
+1. Download the archive for your platform (`linux-x86_64`, `linux-aarch64`,
+   `macos-x86_64`, `macos-aarch64`, or `windows-x86_64`).
+2. Extract the `bacnet-simulator` executable.
+3. Run it from the folder where you want `config.yaml` to live.
+
+**Linux / macOS**
+
+```bash
+chmod +x bacnet-simulator
+./bacnet-simulator
+```
+
+**Windows**
+
+Double-click `bacnet-simulator.exe` in Explorer, or run from a terminal:
+
+```powershell
+.\bacnet-simulator.exe
+```
+
+On first start the simulator writes `config.yaml` in the **current working directory**
+(a comprehensive Marina Heights Tower sample with ~250 devices). Edit that file and
+restart to customize the building. If `config.yaml` already exists, it is loaded as-is.
 
 ### Run from source
 
@@ -24,33 +61,36 @@ without real hardware.
 cargo run --release
 ```
 
-By default it loads `config.yaml` from the working directory. Override with:
+Same behavior: creates `config.yaml` in the working directory when missing.
+
+Override the config location with:
 
 ```bash
 CONFIG_PATH=/path/to/config.yaml RUST_LOG=info cargo run --release
 ```
 
-### Run with Docker
-
-Pull the published multi-arch image (linux/amd64, linux/arm64) from GHCR:
+Force log-only mode (no TUI) for scripts or CI:
 
 ```bash
-docker pull ghcr.io/netix-ai-oss/bacnet-simulator:latest
+./bacnet-simulator --no-tui
+# or: BACNET_SIM_NO_TUI=1 ./bacnet-simulator
 ```
 
-BACnet/IP relies on UDP broadcast, so host networking is recommended:
+## Terminal UI
 
-```bash
-docker run --rm --network host \
-  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
-  ghcr.io/netix-ai-oss/bacnet-simulator:latest
-```
+When stdout is a TTY (normal terminal or double-click on Windows/macOS/Linux console),
+the simulator opens a **ratatui** dashboard instead of streaming logs.
 
-Or with the bundled compose file:
+| Tab | What you see |
+| --- | --- |
+| **Status** | Building name, config path, BACnet listener, uptime, device/point counts, occupancy and outside temperature, request counters, recent log lines |
+| **Devices** | Scrollable device list; `/` to filter; Enter to drill into live point values |
+| **Config** | Reset to bundled sample or run a minimal-config wizard |
 
-```bash
-docker compose up --build
-```
+**Keys:** `Tab` / `←` `→` switch tabs · `↑` `↓` scroll · `Enter` select · `/` filter devices · `Esc` back · `q` quit
+
+**Config changes** are written to `config.yaml` on disk. After saving, press `R` to restart
+the process with the new config or `Q` to quit.
 
 ## Configuration
 
@@ -61,15 +101,18 @@ Behavior is fully described by `config.yaml`:
 - `templates` — reusable device definitions and their points/profiles.
 - `instances` — how many of each template to materialize.
 
-Device and object IDs are assigned automatically and are guaranteed unique. See the
-provided `config.yaml` for a complete worked example.
+Device and object IDs are assigned automatically and are guaranteed unique. The
+auto-generated sample config is the same as the bundled
+[`config.yaml`](config.yaml) in this repository — a complete worked example with
+central plant, AHUs, VAVs, meters, lighting, and more.
 
 ## Environment variables
 
-| Variable      | Default       | Description                          |
-| ------------- | ------------- | ------------------------------------ |
-| `CONFIG_PATH` | `config.yaml` | Path to the YAML configuration file. |
-| `RUST_LOG`    | `info`        | Log level (`error`/`warn`/`info`/`debug`). |
+| Variable            | Default       | Description                                      |
+| ------------------- | ------------- | ------------------------------------------------ |
+| `CONFIG_PATH`       | `config.yaml` | Path to the YAML configuration file.             |
+| `BACNET_SIM_NO_TUI` | (unset)       | Set to `1` or `true` to disable the terminal UI. |
+| `RUST_LOG`          | `info`        | Log level in `--no-tui` mode (`error`/`warn`/`info`/`debug`). |
 
 ## Development
 
@@ -77,6 +120,19 @@ provided `config.yaml` for a complete worked example.
 cargo build --release --locked
 cargo test --locked
 ```
+
+### Cutting a release
+
+Push a version tag; CI runs tests, then builds and uploads platform archives to
+GitHub Releases:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Artifacts: `bacnet-simulator-<platform>.tar.gz` (Linux, macOS) or
+`.zip` (Windows).
 
 ## License
 

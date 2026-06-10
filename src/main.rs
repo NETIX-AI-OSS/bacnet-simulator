@@ -1,58 +1,47 @@
+mod app;
 mod bacnet_server;
 mod config;
 mod simulation;
+mod tui;
 
-use std::sync::Arc;
+use app::{bootstrap_config, build_simulation, detect_run_mode, parse_args, run, RunMode};
+use log::info;
 
-use bacnet_server::BacnetServer;
-use config::SimulatorConfig;
-use log::{error, info};
-use simulation::Simulation;
-use simulation::registry::build_device_registry;
-use tokio::sync::Mutex;
+#[cfg(windows)]
+fn pause_on_fatal_error() {
+    use std::io::{self, Write};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+    let _ = writeln!(io::stderr(), "\nPress Enter to close this window...");
+    let _ = io::stderr().flush();
+    let mut line = String::new();
+    let _ = io::stdin().read_line(&mut line);
+}
 
-    info!("Starting BACnet Building Simulator...");
+#[cfg(not(windows))]
+fn pause_on_fatal_error() {}
 
-    let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.yaml".to_string());
+pub fn exit_with_error(code: i32) -> ! {
+    pause_on_fatal_error();
+    std::process::exit(code);
+}
 
-    let config = match SimulatorConfig::load_from_file(&config_path) {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (no_tui_flag, config_path) = parse_args();
+    let mode = detect_run_mode(no_tui_flag);
+
+    if mode == RunMode::Headless {
+        env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+        info!("Starting BACnet Building Simulator...");
+    }
+
+    let config = match bootstrap_config(&config_path) {
         Ok(c) => c,
-        Err(e) => {
-            error!("Failed to load config from {}: {}", config_path, e);
-            std::process::exit(1);
-        }
+        Err(code) => exit_with_error(code),
     };
-
-    info!(
-        "Loaded configuration for building: {} ({} templates, {} instance blocks)",
-        config.building.name,
-        config.templates.len(),
-        config.instances.len()
-    );
-
-    let simulation = match Simulation::new(&config) {
+    let simulation = match build_simulation(&config) {
         Ok(s) => s,
-        Err(e) => {
-            error!("Failed to build simulation: {}", e);
-            std::process::exit(1);
-        }
+        Err(code) => exit_with_error(code),
     };
 
-    let devices = build_device_registry(&simulation.devices);
-    info!(
-        "Simulating {} devices with {} total points.",
-        simulation.devices.len(),
-        simulation.total_points()
-    );
-
-    let sim_arc = Arc::new(Mutex::new(simulation));
-    let server = BacnetServer::new(sim_arc.clone(), devices, 47808);
-
-    server.run().await;
-
-    Ok(())
+    run(mode, config_path, config, simulation)
 }

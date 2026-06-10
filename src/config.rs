@@ -1,4 +1,7 @@
+pub mod minimal;
+
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -123,11 +126,51 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+/// Bundled sample configuration (same content as the repo `config.yaml`).
+pub const DEFAULT_CONFIG: &str = include_str!("../config.yaml");
+
 impl SimulatorConfig {
+    /// Write the bundled sample config to `path` when it does not already exist.
+    pub fn ensure_config_file(path: &Path) -> Result<bool, ConfigError> {
+        if path.exists() {
+            return Ok(false);
+        }
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(ConfigError::Io)?;
+            }
+        }
+        std::fs::write(path, DEFAULT_CONFIG).map_err(ConfigError::Io)?;
+        Ok(true)
+    }
+
     pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         let f = std::fs::File::open(path).map_err(ConfigError::Io)?;
         let config: SimulatorConfig = serde_yaml::from_reader(f).map_err(ConfigError::Yaml)?;
         Ok(config)
+    }
+
+    pub fn load_default_embedded() -> Result<Self, ConfigError> {
+        serde_yaml::from_str(DEFAULT_CONFIG).map_err(ConfigError::Yaml)
+    }
+
+    pub fn write_config(path: &Path, config: &SimulatorConfig) -> Result<(), ConfigError> {
+        let yaml = serde_yaml::to_string(config).map_err(ConfigError::Yaml)?;
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(ConfigError::Io)?;
+            }
+        }
+        std::fs::write(path, yaml).map_err(ConfigError::Io)
+    }
+
+    pub fn write_default_config(path: &Path) -> Result<(), ConfigError> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(ConfigError::Io)?;
+            }
+        }
+        std::fs::write(path, DEFAULT_CONFIG).map_err(ConfigError::Io)
     }
 
     pub fn expand(&self) -> Result<Vec<DeviceSpec>, ConfigError> {
@@ -293,6 +336,40 @@ mod tests {
         let mut cfg = sample_config();
         cfg.instances[0].template = "nope".into();
         assert!(matches!(cfg.expand(), Err(ConfigError::UnknownTemplate(_))));
+    }
+
+    #[test]
+    fn embedded_default_config_parses() {
+        SimulatorConfig::load_default_embedded().expect("embedded default config must parse");
+    }
+
+    #[test]
+    fn write_default_config_round_trip() {
+        let dir = std::env::temp_dir().join(format!("bacnet-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.yaml");
+        SimulatorConfig::write_default_config(&path).unwrap();
+        let loaded = SimulatorConfig::load_from_file(path.to_str().unwrap()).unwrap();
+        assert!(!loaded.instances.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_config_file_writes_only_when_missing() {
+        let dir = std::env::temp_dir().join(format!(
+            "bacnet-sim-config-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.yaml");
+
+        assert!(SimulatorConfig::ensure_config_file(&path).unwrap());
+        assert!(path.is_file());
+        assert!(!SimulatorConfig::ensure_config_file(&path).unwrap());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
