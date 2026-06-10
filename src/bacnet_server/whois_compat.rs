@@ -21,14 +21,8 @@ mod tests {
         let mut encoded = Vec::new();
         request.encode(&mut encoded).unwrap();
         let decoded = decode_whois(&encoded);
-        assert_eq!(
-            decoded.device_instance_range_low_limit,
-            Some(1001)
-        );
-        assert_eq!(
-            decoded.device_instance_range_high_limit,
-            Some(1001)
-        );
+        assert_eq!(decoded.device_instance_range_low_limit, Some(1001));
+        assert_eq!(decoded.device_instance_range_high_limit, Some(1001));
         assert!(decoded.matches(1001));
         assert!(!decoded.matches(1002));
     }

@@ -67,7 +67,7 @@ pub fn build_device_registry(devices: &[SimulatedDevice]) -> Vec<DeviceEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PointSpec, DeviceSpec};
+    use crate::config::{DeviceSpec, PointSpec};
     use crate::simulation::profiles::ProfileSpec;
 
     #[test]

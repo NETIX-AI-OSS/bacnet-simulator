@@ -143,3 +143,221 @@ pub fn units_from_str(value: Option<&str>) -> u32 {
         Some(_) => 95,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{DeviceSpec, PointSpec};
+    use crate::simulation::profiles::ProfileSpec;
+
+    // -----------------------------------------------------------------------
+    // object_type_from_str
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn object_type_from_str_known_values() {
+        use bacnet_rs::object::ObjectType;
+        assert_eq!(
+            object_type_from_str("analog_input"),
+            Some(ObjectType::AnalogInput)
+        );
+        assert_eq!(
+            object_type_from_str("analog_output"),
+            Some(ObjectType::AnalogOutput)
+        );
+        assert_eq!(
+            object_type_from_str("analog_value"),
+            Some(ObjectType::AnalogValue)
+        );
+        assert_eq!(
+            object_type_from_str("binary_input"),
+            Some(ObjectType::BinaryInput)
+        );
+        assert_eq!(
+            object_type_from_str("binary_output"),
+            Some(ObjectType::BinaryOutput)
+        );
+        assert_eq!(
+            object_type_from_str("binary_value"),
+            Some(ObjectType::BinaryValue)
+        );
+        assert_eq!(
+            object_type_from_str("multi_state_input"),
+            Some(ObjectType::MultiStateInput)
+        );
+        assert_eq!(
+            object_type_from_str("multi_state_output"),
+            Some(ObjectType::MultiStateOutput)
+        );
+        assert_eq!(
+            object_type_from_str("multi_state_value"),
+            Some(ObjectType::MultiStateValue)
+        );
+    }
+
+    #[test]
+    fn object_type_from_str_case_insensitive() {
+        use bacnet_rs::object::ObjectType;
+        assert_eq!(
+            object_type_from_str("ANALOG_INPUT"),
+            Some(ObjectType::AnalogInput)
+        );
+        assert_eq!(
+            object_type_from_str("Analog_Input"),
+            Some(ObjectType::AnalogInput)
+        );
+    }
+
+    #[test]
+    fn object_type_from_str_trims_whitespace() {
+        use bacnet_rs::object::ObjectType;
+        assert_eq!(
+            object_type_from_str("  analog_input  "),
+            Some(ObjectType::AnalogInput)
+        );
+    }
+
+    #[test]
+    fn object_type_from_str_unknown_returns_none() {
+        assert_eq!(object_type_from_str("unknown_type"), None);
+        assert_eq!(object_type_from_str(""), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // units_from_str
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn units_from_str_known_values() {
+        assert_eq!(units_from_str(Some("degrees_celsius")), 62);
+        assert_eq!(units_from_str(Some("degrees_fahrenheit")), 64);
+        assert_eq!(units_from_str(Some("degrees_kelvin")), 63);
+        assert_eq!(units_from_str(Some("percent")), 98);
+        assert_eq!(units_from_str(Some("percent_relative_humidity")), 29);
+        assert_eq!(units_from_str(Some("parts_per_million")), 96);
+        assert_eq!(units_from_str(Some("watts")), 47);
+        assert_eq!(units_from_str(Some("kilowatts")), 48);
+        assert_eq!(units_from_str(Some("kilowatt_hours")), 19);
+        assert_eq!(units_from_str(Some("volts")), 5);
+        assert_eq!(units_from_str(Some("amperes")), 3);
+    }
+
+    #[test]
+    fn units_from_str_none_returns_no_units() {
+        assert_eq!(units_from_str(None), 95);
+    }
+
+    #[test]
+    fn units_from_str_explicit_no_units() {
+        assert_eq!(units_from_str(Some("no_units")), 95);
+    }
+
+    #[test]
+    fn units_from_str_unknown_falls_back_to_no_units() {
+        assert_eq!(units_from_str(Some("flux_capacitors")), 95);
+        assert_eq!(units_from_str(Some("")), 95);
+    }
+
+    #[test]
+    fn units_from_str_case_insensitive() {
+        assert_eq!(units_from_str(Some("DEGREES_CELSIUS")), 62);
+        assert_eq!(units_from_str(Some("Watts")), 47);
+    }
+
+    // -----------------------------------------------------------------------
+    // SimulatedPoint::present_value_property
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn present_value_property_real() {
+        use bacnet_rs::property::PropertyValue;
+        let spec = PointSpec {
+            label: "temp".into(),
+            object_type: "analog_input".into(),
+            units: None,
+            instance: 1,
+            profile: ProfileSpec::Constant { value: 22.5 },
+        };
+        let point = SimulatedPoint::from_spec(&spec).unwrap();
+        assert!(matches!(
+            point.present_value_property(),
+            PropertyValue::Real(_)
+        ));
+    }
+
+    #[test]
+    fn present_value_property_boolean() {
+        use bacnet_rs::property::PropertyValue;
+        let spec = PointSpec {
+            label: "occ".into(),
+            object_type: "binary_value".into(),
+            units: None,
+            instance: 1,
+            profile: ProfileSpec::ConstantBool { value: true },
+        };
+        let point = SimulatedPoint::from_spec(&spec).unwrap();
+        assert!(matches!(
+            point.present_value_property(),
+            PropertyValue::Boolean(_)
+        ));
+    }
+
+    #[test]
+    fn present_value_property_unsigned() {
+        use bacnet_rs::property::PropertyValue;
+        let spec = PointSpec {
+            label: "mode".into(),
+            object_type: "multi_state_value".into(),
+            units: None,
+            instance: 1,
+            profile: ProfileSpec::ConstantState { value: 2 },
+        };
+        let point = SimulatedPoint::from_spec(&spec).unwrap();
+        assert!(matches!(
+            point.present_value_property(),
+            PropertyValue::Unsigned(2)
+        ));
+    }
+
+    // -----------------------------------------------------------------------
+    // SimulatedDevice::tick — sibling pre-seeding
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn simulated_device_tick_preseeds_siblings_for_derived_constant() {
+        let spec = DeviceSpec {
+            device_id: 5001,
+            name: "AHU".into(),
+            points: vec![
+                PointSpec {
+                    label: "power".into(),
+                    object_type: "analog_value".into(),
+                    units: None,
+                    instance: 1,
+                    profile: ProfileSpec::Constant { value: 100.0 },
+                },
+                // DerivedConstant copies whatever "power" is at the start of the tick.
+                PointSpec {
+                    label: "power_copy".into(),
+                    object_type: "analog_value".into(),
+                    units: None,
+                    instance: 2,
+                    profile: ProfileSpec::DerivedConstant {
+                        from: "power".into(),
+                    },
+                },
+            ],
+        };
+        let mut device = SimulatedDevice::from_spec(&spec);
+        device.tick(1.0, 0.0, 0.0, 25.0);
+
+        let copy = device
+            .find_point(bacnet_rs::object::ObjectType::AnalogValue, 2)
+            .unwrap();
+        let v = copy.value.as_f32().unwrap();
+        assert!(
+            (v - 100.0).abs() < 1e-3,
+            "derived copy should equal power=100.0, got {v}"
+        );
+    }
+}

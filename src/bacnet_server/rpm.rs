@@ -5,10 +5,10 @@ use bacnet_types::enums::{ErrorClass, ErrorCode, PropertyIdentifier};
 use bacnet_types::primitives::ObjectIdentifier;
 use bytes::BytesMut;
 
-use crate::simulation::registry::DeviceEntry;
 use crate::simulation::Simulation;
+use crate::simulation::registry::DeviceEntry;
 
-use super::properties::{encode_property_value_bytes, resolve_property_read, PropertyRead};
+use super::properties::{PropertyRead, encode_property_value_bytes, resolve_property_read};
 
 // BACnet/IP single-segment APDU ceiling. We don't implement segmentation, so cap encoded
 // RPM ACKs to a safe size and return None (which routes to Error PDU) rather than truncate.
