@@ -1,6 +1,6 @@
 [package]
 name = "bacnet-simulator"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Config-driven BACnet/IP building simulator that emulates many devices and realistic point behavior."
 license = "Apache-2.0"
