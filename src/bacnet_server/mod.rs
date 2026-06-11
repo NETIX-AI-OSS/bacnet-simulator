@@ -136,6 +136,13 @@ impl BacnetServer {
                     .await;
                 }
                 Err(e) => {
+                    // On Windows, an ICMP Port Unreachable for a datagram we previously
+                    // sent (e.g. an I-Am to a client port that has since closed) is
+                    // surfaced as WSAECONNRESET on the next recv. The socket is fine and
+                    // no inbound data is lost, so skip the noise.
+                    if e.kind() == std::io::ErrorKind::ConnectionReset {
+                        continue;
+                    }
                     if let Some(log) = &app_log {
                         log.push(format!("WARN: Error receiving from socket: {e}"));
                     } else {
