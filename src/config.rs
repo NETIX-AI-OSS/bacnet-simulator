@@ -177,6 +177,17 @@ impl SimulatorConfig {
         let mut devices = Vec::new();
         let block = self.id_policy.per_template_block.max(1);
 
+        // BACnet object instances must be globally unique per object-type across ALL
+        // devices, not merely within a device. Every virtual device shares one BACnet/IP
+        // endpoint, so a ReadProperty for a point object carries only the object id — the
+        // target device is not recoverable from the PDU. `resolve_property_read` resolves a
+        // point to the FIRST device owning (object_type, instance); with per-device instance
+        // numbering every device's `analog_input:1` (etc.) collided and resolved to the first
+        // owner (the `-001` devices), scrambling BOTH object names and present values. A
+        // counter shared across all devices keeps each (object_type, instance) owned by
+        // exactly one device. Numbers stay small (<= total points of that object-type).
+        let mut instance_counters: HashMap<String, u32> = HashMap::new();
+
         for (block_idx, inst) in self.instances.iter().enumerate() {
             let template = self
                 .templates
@@ -197,7 +208,6 @@ impl SimulatorConfig {
                 let device_id = block_start + n;
                 let name = format!("{}-{:03}", inst.name_prefix, n + 1);
 
-                let mut instance_counters: HashMap<String, u32> = HashMap::new();
                 let mut points = Vec::with_capacity(template.points.len());
                 for tp in &template.points {
                     let counter = instance_counters.entry(tp.object_type.clone()).or_insert(0);
@@ -389,17 +399,22 @@ mod tests {
         );
 
         let mut device_ids = std::collections::HashSet::new();
+        // (object_type, instance) must be unique GLOBALLY across all devices, not just
+        // per-device: all virtual devices share one BACnet/IP endpoint, so a colliding
+        // (object_type, instance) would resolve every device's read to the first owner.
+        let mut global_tuples = std::collections::HashSet::new();
         for d in &devs {
             assert!(
                 device_ids.insert(d.device_id),
                 "duplicate device_id {}",
                 d.device_id
             );
-            let mut tuples = std::collections::HashSet::new();
             for p in &d.points {
                 assert!(
-                    tuples.insert((p.object_type.clone(), p.instance)),
-                    "duplicate (type,instance) in device {}",
+                    global_tuples.insert((p.object_type.clone(), p.instance)),
+                    "duplicate (type,instance) ({}, {}) across devices (device {})",
+                    p.object_type,
+                    p.instance,
                     d.device_id
                 );
             }
