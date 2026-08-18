@@ -9,11 +9,7 @@ use crate::simulation::registry::{DeviceEntry, PointEntry};
 
 use super::{MAX_APDU_LENGTH, VENDOR_ID};
 
-/// A lightweight description of a single property read operation.
-///
-/// This struct is non-pub: it exists only as a convenience inside the `bacnet_server`
-/// module.  `rpm.rs` constructs it directly from `bacnet-types` values; within this
-/// file `handle_read_property` builds it from a `ReadPropertyRequest`.
+/// A single property read operation, built either directly from `bacnet-types` values (by `rpm.rs`) or from a `ReadPropertyRequest`.
 pub(super) struct PropertyRead {
     pub object_identifier: ObjectIdentifier,
     pub property_identifier: PropertyIdentifier,
@@ -48,11 +44,7 @@ pub fn handle_read_property(
     Some(ack)
 }
 
-/// Build an O(1) device-id index from a flat device slice.
-///
-/// The index is constructed once per request in the hot path.  For the typical use-case
-/// of 200–300 devices the allocation is cheap and keeps the per-property lookup at O(1)
-/// rather than O(n).
+/// Build an O(1) device-id index from a flat device slice, rebuilt once per request since 200–300 devices makes the allocation cheap.
 fn index_devices_by_id(devices: &[DeviceEntry]) -> HashMap<u32, &DeviceEntry> {
     devices.iter().map(|d| (d.device_id, d)).collect()
 }

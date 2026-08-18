@@ -23,8 +23,7 @@ use crate::simulation::registry::DeviceEntry;
 /// BACnet vendor identifier assigned to this simulator.
 pub const VENDOR_ID: u32 = 260;
 
-/// Maximum APDU length advertised in I-Am and device property responses.
-/// BACnet/IP single-segment ceiling (1476 bytes = 1500 MTU − 14 Ethernet − 20 IP − 8 UDP − BVLC/NPDU overhead).
+/// Maximum APDU length (1476 = 1500 MTU − 14 Ethernet − 20 IP − 8 UDP − BVLC/NPDU overhead), the BACnet/IP single-segment ceiling.
 pub const MAX_APDU_LENGTH: u32 = 1476;
 
 pub struct BacnetServer {
@@ -376,8 +375,7 @@ mod tests {
 
     // --- Helpers — build minimal BVLC frames for extract_apdu tests ---
 
-    /// Build a well-formed Original-Unicast-NPDU (0x0A) or Broadcast (0x0B) BVLC frame.
-    /// `npdu_apdu` is the raw NPDU+APDU bytes (no BVLC header).
+    /// Build an Original-Unicast (0x0A) or Broadcast (0x0B) BVLC frame around `npdu_apdu` (raw NPDU+APDU, no BVLC header).
     fn bvlc_frame(function: u8, npdu_apdu: &[u8]) -> Vec<u8> {
         let total = 4 + npdu_apdu.len();
         let mut frame = vec![0x81, function, (total >> 8) as u8, (total & 0xFF) as u8];
@@ -385,8 +383,7 @@ mod tests {
         frame
     }
 
-    /// Build a minimal NPDU (single byte 0x00 = no special control flags) followed by a
-    /// synthetic APDU byte sequence.
+    /// Build a minimal 2-byte NPDU (version=1, control=0) followed by a synthetic APDU byte sequence.
     fn minimal_npdu_apdu(apdu: &[u8]) -> Vec<u8> {
         // NPDU version + control (2 bytes minimum decoded by bacnet-rs Npdu::decode).
         let mut v = vec![0x01, 0x00]; // version=1, control=0
