@@ -63,8 +63,7 @@ impl SimulatedDevice {
 
     pub fn tick(&mut self, dt: f32, now_secs: f64, occupancy: f32, outside_temp: f32) {
         let mut siblings: HashMap<String, f32> = HashMap::with_capacity(self.points.len());
-        // Pre-seed with current values so DerivedConstant/Integrator referencing yet-unticked
-        // points still get a stable starting value.
+        // Pre-seed so unticked DerivedConstant/Integrator refs get a start
         for p in &self.points {
             if let Some(v) = p.value.as_f32() {
                 siblings.insert(p.label.clone(), v);
@@ -150,9 +149,7 @@ mod tests {
     use crate::config::{DeviceSpec, PointSpec};
     use crate::simulation::profiles::ProfileSpec;
 
-    // -----------------------------------------------------------------------
-    // object_type_from_str
-    // -----------------------------------------------------------------------
+    // --- object_type_from_str ---
 
     #[test]
     fn object_type_from_str_known_values() {
@@ -223,9 +220,7 @@ mod tests {
         assert_eq!(object_type_from_str(""), None);
     }
 
-    // -----------------------------------------------------------------------
-    // units_from_str
-    // -----------------------------------------------------------------------
+    // --- units_from_str ---
 
     #[test]
     fn units_from_str_known_values() {
@@ -264,9 +259,7 @@ mod tests {
         assert_eq!(units_from_str(Some("Watts")), 47);
     }
 
-    // -----------------------------------------------------------------------
-    // SimulatedPoint::present_value_property
-    // -----------------------------------------------------------------------
+    // --- SimulatedPoint::present_value_property ---
 
     #[test]
     fn present_value_property_real() {
@@ -319,9 +312,7 @@ mod tests {
         ));
     }
 
-    // -----------------------------------------------------------------------
-    // SimulatedDevice::tick — sibling pre-seeding
-    // -----------------------------------------------------------------------
+    // --- SimulatedDevice::tick — sibling pre-seeding ---
 
     #[test]
     fn simulated_device_tick_preseeds_siblings_for_derived_constant() {
