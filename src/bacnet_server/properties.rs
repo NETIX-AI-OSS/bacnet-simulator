@@ -72,9 +72,7 @@ pub fn resolve_property_read(
         return read_device_property(device, read.property_identifier, read.property_array_index);
     }
 
-    // Point lookup: iterate devices once to find the point owner.  In a future revision
-    // this can be replaced by a (object_type, instance) → (device_id, point_idx) map
-    // built at startup.
+    // Point lookup scans all devices; could be a startup-built id map instead
     for device in devices {
         let Some(point) = device.find_point(object_type, instance) else {
             continue;
@@ -171,9 +169,7 @@ mod tests {
     use bacnet_rs::object::ObjectType;
     use std::collections::HashMap;
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
+    // --- Helpers ---
 
     fn single_device_config(points: Vec<PointSpec>) -> SimulatorConfig {
         let mut templates = HashMap::new();
@@ -225,9 +221,7 @@ mod tests {
         (sim, registry)
     }
 
-    // -----------------------------------------------------------------------
-    // read_device_property
-    // -----------------------------------------------------------------------
+    // --- read_device_property ---
 
     #[test]
     fn device_object_name_returns_device_name() {
@@ -404,9 +398,7 @@ mod tests {
         assert!(resolve_property_read(&read, &registry, &sim).is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // read_point_property
-    // -----------------------------------------------------------------------
+    // --- read_point_property ---
 
     #[test]
     fn point_object_name_combines_device_name_and_label() {
@@ -592,9 +584,7 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // resolve_property_read — unknown device/point returns None
-    // -----------------------------------------------------------------------
+    // --- resolve_property_read — unknown device/point returns None ---
 
     #[test]
     fn resolve_returns_none_for_unknown_device_id() {

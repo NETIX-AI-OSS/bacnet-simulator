@@ -97,9 +97,7 @@ impl BacnetServer {
         self.metrics.set_listening(true);
         self.log_info(format!("BACnet Simulator Server listening on {addr}"));
 
-        // Spawn a dedicated simulation tick task that fires every second regardless of
-        // BACnet packet load. Using Instant for elapsed time gives accurate dt even when
-        // ticks are slightly late.
+        // Dedicated tick task fires every second using Instant for accurate dt
         let sim_clone = Arc::clone(&self.simulation);
         let metrics = Arc::clone(&self.metrics);
         let app_log = self.app_log.clone();
@@ -118,8 +116,7 @@ impl BacnetServer {
             }
         });
 
-        // BACnet/IP max APDU is MAX_APDU_LENGTH, but BVLC/NPDU framing and some clients pad.
-        // 4096 is defensive headroom that costs nothing in practice.
+        // 4096: headroom above MAX_APDU_LENGTH for BVLC/NPDU framing/padding
         let mut buf = [0u8; 4096];
         loop {
             match socket.recv_from(&mut buf).await {
@@ -136,10 +133,7 @@ impl BacnetServer {
                     .await;
                 }
                 Err(e) => {
-                    // On Windows, an ICMP Port Unreachable for a datagram we previously
-                    // sent (e.g. an I-Am to a client port that has since closed) is
-                    // surfaced as WSAECONNRESET on the next recv. The socket is fine and
-                    // no inbound data is lost, so skip the noise.
+                    // Windows ICMP-unreachable resets are harmless; ignore
                     if e.kind() == std::io::ErrorKind::ConnectionReset {
                         continue;
                     }
@@ -380,9 +374,7 @@ fn wrap_unicast_npdu(apdu: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>>
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
-    // Helpers — build minimal BVLC frames for extract_apdu tests.
-    // -----------------------------------------------------------------------
+    // --- Helpers — build minimal BVLC frames for extract_apdu tests ---
 
     /// Build a well-formed Original-Unicast-NPDU (0x0A) or Broadcast (0x0B) BVLC frame.
     /// `npdu_apdu` is the raw NPDU+APDU bytes (no BVLC header).
@@ -402,9 +394,7 @@ mod tests {
         v
     }
 
-    // -----------------------------------------------------------------------
-    // extract_apdu
-    // -----------------------------------------------------------------------
+    // --- extract_apdu ---
 
     #[test]
     fn extract_apdu_rejects_non_0x81_leading_byte() {
@@ -459,8 +449,7 @@ mod tests {
 
     #[test]
     fn extract_apdu_valid_0x04_forwarded_npdu() {
-        // 0x04 frames have an extra 6-byte originating address inserted after the 4-byte
-        // BVLC header, so npdu_start = 10 (4 BVLC + 6 address).
+        // 0x04 frames add a 6-byte address after BVLC: npdu_start = 10 (4+6)
         let apdu_bytes = &[0x10, 0x08];
         // Build inner payload: 6 dummy address bytes + NPDU + APDU
         let mut inner = vec![0u8; 6]; // originating address placeholder
@@ -478,9 +467,7 @@ mod tests {
         assert!(extract_apdu(&frame).is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // Constants sanity checks
-    // -----------------------------------------------------------------------
+    // --- Constants sanity checks ---
 
     #[test]
     fn constants_have_expected_values() {
@@ -488,9 +475,7 @@ mod tests {
         assert_eq!(MAX_APDU_LENGTH, 1476);
     }
 
-    // -----------------------------------------------------------------------
-    // wrap_unicast_npdu
-    // -----------------------------------------------------------------------
+    // --- wrap_unicast_npdu ---
 
     #[test]
     fn wrap_unicast_npdu_produces_valid_bvlc_frame() {
