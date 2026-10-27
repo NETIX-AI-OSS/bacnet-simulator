@@ -116,6 +116,7 @@ jobs:
         with:
           name: bacnet-simulator-${{ matrix.artifact_name }}
           path: bacnet-simulator-${{ matrix.artifact_name }}.*
+          retention-days: 3
           if-no-files-found: error
 
   release:
