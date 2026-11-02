@@ -19,7 +19,7 @@ jobs:
   test:
     name: Test
     runs-on:
-      group: default
+      group: e2e-worker
       labels: [build-only, Linux, X64]
     container: rust:1.96.0-bookworm
     steps:
@@ -45,7 +45,7 @@ jobs:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on:
-      group: default
+      group: e2e-worker
       labels: ${{ matrix.os }}
     container: ${{ matrix.container }}
     strategy:
@@ -261,7 +261,7 @@ jobs:
     needs: [build, build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on:
-      group: default
+      group: e2e-worker
       labels: [build-only, Linux, X64]
     container: rust:1.96.0-bookworm
     permissions:
