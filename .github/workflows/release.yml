@@ -18,8 +18,13 @@ permissions:
 jobs:
   test:
     name: Test
-    runs-on: build-only
+    runs-on:
+      group: e2e-worker
+      labels: [build-only, Linux, X64]
+    container: rust:1.96.0-bookworm
     steps:
+      - name: Install container build tools
+        run: apt-get update && apt-get install -y --no-install-recommends cmake perl pkg-config
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -39,38 +44,30 @@ jobs:
     name: Build ${{ matrix.artifact_name }}
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ${{ matrix.os }}
+    runs-on:
+      group: e2e-worker
+      labels: ${{ matrix.os }}
+    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: build-only
+          - os: [build-only, Linux, X64]
+            container: rust:1.96.0-bookworm
             target: x86_64-unknown-linux-gnu
             artifact_name: linux-x86_64
             archive: tar
             bin: bacnet-simulator
-          - os: build-only
+          - os: [build-only, Linux, ARM64]
+            container: rust:1.96.0-bookworm
             target: aarch64-unknown-linux-gnu
             artifact_name: linux-aarch64
             archive: tar
             bin: bacnet-simulator
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: macos-x86_64
-            archive: tar
-            bin: bacnet-simulator
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: macos-aarch64
-            archive: tar
-            bin: bacnet-simulator
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: windows-x86_64
-            archive: zip
-            bin: bacnet-simulator.exe
-
     steps:
+      - name: Install container build tools
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends cmake perl pkg-config
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -87,8 +84,148 @@ jobs:
       - name: Install cross-compilation toolchain (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          apt-get update
+          apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '-C target-feature=+crt-static' || '' }}
+
+      - name: Package archive (Unix)
+        if: matrix.archive == 'tar'
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.bin }}"
+          tar -czf "bacnet-simulator-${{ matrix.artifact_name }}.tar.gz" -C dist "${{ matrix.bin }}"
+
+      - name: Package archive (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.bin }}"
+          Compress-Archive -Path "dist/${{ matrix.bin }}" -DestinationPath "bacnet-simulator-${{ matrix.artifact_name }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bacnet-simulator-${{ matrix.artifact_name }}
+          path: bacnet-simulator-${{ matrix.artifact_name }}.*
+          retention-days: 3
+          if-no-files-found: error
+
+
+  build-macos:
+    name: Build ${{ matrix.artifact_name }}
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: [build-only, macOS]
+            target: x86_64-apple-darwin
+            artifact_name: macos-x86_64
+            archive: tar
+            bin: bacnet-simulator
+          - os: [build-only, macOS]
+            target: aarch64-apple-darwin
+            artifact_name: macos-aarch64
+            archive: tar
+            bin: bacnet-simulator
+    steps:
+      - name: Install container build tools
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends cmake perl pkg-config
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          apt-get update
+          apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '-C target-feature=+crt-static' || '' }}
+
+      - name: Package archive (Unix)
+        if: matrix.archive == 'tar'
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.bin }}"
+          tar -czf "bacnet-simulator-${{ matrix.artifact_name }}.tar.gz" -C dist "${{ matrix.bin }}"
+
+      - name: Package archive (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.bin }}"
+          Compress-Archive -Path "dist/${{ matrix.bin }}" -DestinationPath "bacnet-simulator-${{ matrix.artifact_name }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bacnet-simulator-${{ matrix.artifact_name }}
+          path: bacnet-simulator-${{ matrix.artifact_name }}.*
+          retention-days: 3
+          if-no-files-found: error
+
+
+  build-windows:
+    name: Build ${{ matrix.artifact_name }}
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: [build-only-windows, Windows, X64]
+            target: x86_64-pc-windows-msvc
+            artifact_name: windows-x86_64
+            archive: zip
+            bin: bacnet-simulator.exe
+
+    steps:
+      - name: Install container build tools
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends cmake perl pkg-config
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          apt-get update
+          apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -121,12 +258,17 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [build, build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: build-only
+    runs-on:
+      group: e2e-worker
+      labels: [build-only, Linux, X64]
+    container: rust:1.96.0-bookworm
     permissions:
       contents: write
     steps:
+      - name: Install container build tools
+        run: apt-get update && apt-get install -y --no-install-recommends cmake perl pkg-config
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
