@@ -312,7 +312,7 @@ mod tests {
         ));
     }
 
-    // --- SimulatedDevice::tick — sibling pre-seeding ---
+    // --- SimulatedDevice::tick, sibling pre-seeding ---
 
     #[test]
     fn simulated_device_tick_preseeds_siblings_for_derived_constant() {

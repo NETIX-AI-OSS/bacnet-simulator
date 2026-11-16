@@ -23,7 +23,7 @@ pub fn draw(f: &mut Frame, area: ratatui::layout::Rect, snap: &AppSnapshot) {
     let last_client = snap
         .last_client
         .as_deref()
-        .unwrap_or("—");
+        .unwrap_or("N/A");
 
     let summary = vec![
         Line::from(vec![
