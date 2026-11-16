@@ -44,7 +44,7 @@ pub fn handle_read_property(
     Some(ack)
 }
 
-/// Build an O(1) device-id index from a flat device slice, rebuilt once per request since 200–300 devices makes the allocation cheap.
+/// Build an O(1) device-id index from a flat device slice, rebuilt once per request since 200-300 devices makes the allocation cheap.
 fn index_devices_by_id(devices: &[DeviceEntry]) -> HashMap<u32, &DeviceEntry> {
     devices.iter().map(|d| (d.device_id, d)).collect()
 }
@@ -576,7 +576,7 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // --- resolve_property_read — unknown device/point returns None ---
+    // --- resolve_property_read, unknown device/point returns None ---
 
     #[test]
     fn resolve_returns_none_for_unknown_device_id() {

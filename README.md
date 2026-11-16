@@ -1,9 +1,9 @@
 # BACnet Simulator
 
 A config-driven BACnet/IP building simulator written in Rust. It emulates many BACnet
-devices from a single YAML file and drives their points with realistic behavior —
+devices from a single YAML file and drives their points with realistic behavior,
 temperature control loops, occupancy-linked load, scheduled binaries, random walks,
-and integrators — so you can test BACnet clients, gateways, and analytics pipelines
+and integrators, so you can test BACnet clients, gateways, and analytics pipelines
 without real hardware.
 
 Ships as a **single cross-platform binary**: download, run (or double-click), and it
@@ -19,8 +19,8 @@ starts serving BACnet/IP on UDP port **47808**. On first run it writes a full sa
   across all devices.
 - Serves BACnet/IP over UDP (default port **47808**), responding to Who-Is,
   Read-Property, and Read-Property-Multiple.
-- Zero install step beyond the binary — sample config is created automatically.
-- **Interactive terminal UI** on interactive terminals — live status, device browser,
+- Zero install step beyond the binary: sample config is created automatically.
+- **Interactive terminal UI** on interactive terminals: live status, device browser,
   and config generation without leaving the app.
 
 ## Quick start
@@ -52,7 +52,7 @@ Double-click `bacnet-simulator.exe` in Explorer, or run from a terminal:
 ```
 
 On first start the simulator writes `config.yaml` in the **current working directory**
-(a comprehensive Marina Heights Tower sample with ~250 devices). Edit that file and
+(a Marina Heights Tower sample with ~250 devices). Edit that file and
 restart to customize the building. If `config.yaml` already exists, it is loaded as-is.
 
 ### Run from source
@@ -96,14 +96,14 @@ the process with the new config or `Q` to quit.
 
 Behavior is fully described by `config.yaml`:
 
-- `building` / `seasonality` — name, timezone, and weekday/weekend occupancy curves.
-- `id_policy` — base device IDs and per-template addressing blocks.
-- `templates` — reusable device definitions and their points/profiles.
-- `instances` — how many of each template to materialize.
+- `building` / `seasonality`: name, timezone, and weekday/weekend occupancy curves.
+- `id_policy`: base device IDs and per-template addressing blocks.
+- `templates`: reusable device definitions and their points/profiles.
+- `instances`: how many of each template to materialize.
 
 Device and object IDs are assigned automatically and are guaranteed unique. The
 auto-generated sample config is the same as the bundled
-[`config.yaml`](config.yaml) in this repository — a complete worked example with
+[`config.yaml`](config.yaml) in this repository, a complete worked example with
 central plant, AHUs, VAVs, meters, lighting, and more.
 
 ## Environment variables

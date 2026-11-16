@@ -373,7 +373,7 @@ fn wrap_unicast_npdu(apdu: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>>
 mod tests {
     use super::*;
 
-    // --- Helpers — build minimal BVLC frames for extract_apdu tests ---
+    // --- Helpers, build minimal BVLC frames for extract_apdu tests ---
 
     /// Build an Original-Unicast (0x0A) or Broadcast (0x0B) BVLC frame around `npdu_apdu` (raw NPDU+APDU, no BVLC header).
     fn bvlc_frame(function: u8, npdu_apdu: &[u8]) -> Vec<u8> {
